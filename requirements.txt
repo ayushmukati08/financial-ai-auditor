@@ -1,0 +1,12 @@
+python-dotenv
+numpy
+transformers
+torch
+google-genai
+pymupdf
+langchain 
+langchain-community 
+langchain_text_splitters 
+langchain_chroma
+sentence-transformers
+langchain-huggingface

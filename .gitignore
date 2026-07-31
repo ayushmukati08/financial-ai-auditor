@@ -1,0 +1,15 @@
+# Virtual Environment
+.venv/
+
+# Environment Variables
+.env
+
+# Python Cache
+__pycache__/
+*.py[cod]
+
+# Chroma Database
+db/chroma_db/
+
+# VS Code Temporary File
+tempCodeRunnerFile.py
