@@ -23,7 +23,7 @@ def main():
     print("=" * 70)
 
     # Inspect a few pages
-    for page in pages[9:23]:
+    for page in pages[20:30]:
 
         print(f"Document     : {page['document_name']}")
         print(f"Page Number  : {page['page_number']}")

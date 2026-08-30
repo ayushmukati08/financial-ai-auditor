@@ -1,241 +1,221 @@
 # Financial AI Auditor
 
-An AI-powered system for analyzing financial filings using Retrieval-Augmented Generation (RAG), layout-aware document parsing, and evidence-grounded answer generation.
+An AI-powered system for analyzing complex SEC financial filings (10-K / 10-Q) using layout-aware document extraction, hybrid retrieval (Dense + BM25 + Cross-Encoder), and citation-grounded answer synthesis.
 
-Financial AI Auditor addresses hallucinations in financial question answering by combining document structure understanding, evidence retrieval, and grounded response generation over SEC financial filings.
+Financial AI Auditor addresses the critical challenge of numerical and tabular hallucinations in financial question answering by combining bounding-box table extraction, statistical rank fusion, neural reranking, and sentence-level source citations.
 
-> **Team Project:** This project is being developed collaboratively as a two-member team project. Both contributors are actively involved in the design, implementation, experimentation, and future development of the system.
-
----
-
-## Features
-
-- Layout-aware PDF extraction using PyMuPDF
-- Table extraction from financial filings
-- Font and layout metadata preservation
-- Header detection for document structure understanding
-- Section-aware chunking
-- ChromaDB vector database
-- HuggingFace embedding models
-- Modular retrieval pipeline
-- Citation-aware prompting
-- Extensible verification framework
+> **Team Project:** Developed collaboratively as a two-member team project by **Ayush Mukati** and **Nitu Patidar**. Both contributors actively participated in the system architecture, mathematical retrieval design, experimentation, and full-stack implementation.
 
 ---
 
-## Project Architecture
+## Key Features
+
+- **Universal Layout & Table Extraction**: Uses PyMuPDF with coordinate bounding-box alignment to extract complex, multi-column financial statements while preserving tabular relationships and Markdown grids.
+- **Section-Aware Chunking**: Detects SEC Item and Note boundaries, generating table-atomic chunks and sliding paragraph chunks without splitting tables across vector boundaries.
+- **Two-Stage Hybrid Retrieval**:
+  - **Stage 1 (Parallel Recall Pool)**: Dense Semantic Search (`BAAI/bge-base-en-v1.5`) + Lexical Search (`BM25Okapi`).
+  - **Reciprocal Rank Fusion (RRF)**: Merges lexical and dense candidate pools using $RRF(d) = \sum \frac{1}{k + r(d)}$ with $k=60$.
+  - **Stage 2 (Neural Precision)**: Neural Cross-Encoder (`cross-encoder/ms-marco-MiniLM-L-6-v2`) scoring and ranking the Top 5 evidence chunks.
+- **Citation-Enforced Synthesis**: Grounded responses via Google Gemini (`gemini-3.5-flash`) with inline citation tags (`[C1]`, `[C2]`) mapped directly to source document, section, and page numbers.
+- **Interactive Web Dashboard**: Full-stack FastAPI web application with responsive UI, live citation inspector modal, chat history, and drag-and-drop 10-K upload.
+- **Domain-Agnostic & Zero-Heuristic**: No hardcoded financial dictionaries or artificial rule-based hacks; driven purely by statistical and neural ranking.
+
+---
+
+## System Architecture
 
 ```
-Financial-AI-Auditor
-│
-├── core
-│   ├── pdf
-│   │   ├── parser.py
-│   │   └── header_detector.py
-│   │
-│   ├── chunking
-│   │   ├── preprocessor.py
-│   │   ├── section_detector.py
-│   │   ├── chunk_builder.py
-│   │   └── service.py
-│   │
-│   ├── retrieval
-│   │   ├── embedding.py
-│   │   ├── vector_store.py
-│   │   └── retriever.py
-│   │
-│   ├── llm
-│   │   ├── client.py
-│   │   ├── prompts.py
-│   │   ├── citation_prompt.py
-│   │   └── service.py
-│   │
-│   ├── verification
-│   │   └── verifier.py
-│   │
-│   ├── config.py
-│   └── pipeline.py
-│
-├── docs
-├── db
-├── experiments
-├── README.md
-└── requirements.txt
+                                  SEC 10-K / 10-Q PDF
+                                           │
+                                           ▼
+                             Universal PDF Table & Text Parser
+                                           │
+                                           ▼
+                               SEC Section & Note Detector
+                                           │
+                                           ▼
+                              Structure-Aware Chunking
+                            (1,100 High-Fidelity Chunks)
+                                           │
+                                           ▼
+                                 ChromaDB Vector Store
+                                (BAAI/bge-base-en-v1.5)
+                                           │
+                    ┌──────────────────────┴──────────────────────┐
+                    ↓                                             ↓
+             Dense Retrieval                               BM25 Retrieval
+          (Top 20 Semantic BGE)                         (Top 20 Lexical Okapi)
+                    └──────────────────────┬──────────────────────┘
+                                           ↓
+                              Reciprocal Rank Fusion (RRF)
+                                           │
+                                           ▼
+                                 Top 20 Candidate Pool
+                                           │
+                                           ▼
+                                 Cross-Encoder Reranker
+                         (cross-encoder/ms-marco-MiniLM-L-6-v2)
+                                           │
+                                           ▼
+                                 Top 5 Evidence Chunks
+                              [C1], [C2], [C3], [C4], [C5]
+                                           │
+                                           ▼
+                              Strict Financial Prompting
+                                           │
+                                           ▼
+                                  Gemini 3.5 Flash LLM
+                                           │
+                                           ▼
+                              Cited Answer & Evidence Modal
+                               (FastAPI + Responsive Web UI)
 ```
 
 ---
 
-## Current Pipeline
+## 25-Query Benchmark Evaluation
 
-```
-Financial Filing
-        │
-        ▼
-PDF Extraction
-        │
-        ▼
-Header Detection
-        │
-        ▼
-Section-aware Chunking
-        │
-        ▼
-Embedding Generation
-        │
-        ▼
-Vector Database
-        │
-        ▼
-Retrieval Pipeline
-        │
-        ▼
-LLM Response Generation
-        │
-        ▼
-Citation & Verification
-```
+The retrieval architecture was evaluated on a comprehensive 25-query financial benchmark (16 complex table queries, 9 narrative queries) across Apple and Tesla 10-K filings:
+
+| Pipeline Architecture | Hit@1 (Rank 1) | Recall@5 (Top 5) | Table Recall@5 | Text Recall@5 |
+| :--- | :---: | :---: | :---: | :---: |
+| **Dense Only (`bge-base`)** | 28.0% (7/25) | 68.0% (17/25) | 56.2% (9/16) | 88.9% (8/9) |
+| **Dense + Cross-Encoder** | **52.0% (13/25)** | 80.0% (20/25) | 75.0% (12/16) | 88.9% (8/9) |
+| **BM25 + Dense + RRF + Cross-Encoder** | 48.0% (12/25) | **84.0% (21/25)** | **81.2% (13/16)** | **88.9% (8/9)** |
+
+*Key Takeaway: Adding Lexical BM25 via Reciprocal Rank Fusion increased Table Recall@5 from 75.0% to 81.2% (+6.2 percentage points) without any handcoded financial dictionaries.*
 
 ---
 
 ## Tech Stack
 
-### Language
-
-- Python
-
-### Document Processing
-
-- PyMuPDF
-
-### Embeddings
-
-- BAAI/bge-base-en-v1.5
-
-### Vector Database
-
-- ChromaDB
-
-### LLM Framework
-
-- LangChain
-
-### Environment
-
-- Python 3.12+
-- Virtual Environment
+- **Backend / Web API**: FastAPI, Uvicorn, Pydantic, Python 3.12+
+- **Document Processing**: PyMuPDF (`fitz`), LangChain Text Splitters
+- **Dense Embeddings**: `BAAI/bge-base-en-v1.5` via HuggingFace / Sentence-Transformers
+- **Lexical Search**: Custom Pure-Python `BM25Okapi` ($k_1=1.5, b=0.75$)
+- **Reranker**: `cross-encoder/ms-marco-MiniLM-L-6-v2`
+- **Vector Database**: ChromaDB
+- **LLM Synthesis**: Google GenAI SDK (`gemini-3.5-flash`)
+- **Frontend**: Responsive HTML5, CSS3, JavaScript (Fetch API, Marked.js)
 
 ---
 
-## Repository Structure
+## Project Structure
 
-| Folder | Purpose |
-|---------|----------|
-| `core/pdf` | PDF parsing and document extraction |
-| `core/chunking` | Section-aware chunk generation |
-| `core/retrieval` | Embeddings, vector store and retrieval |
-| `core/llm` | Prompt engineering and LLM interaction |
-| `core/verification` | Hallucination verification |
-| `experiments` | Incremental development experiments |
-| `docs` | Sample financial filings |
+```
+financial-ai-auditor/
+│
+├── core/
+│   ├── chunking/
+│   │   ├── chunk_builder.py       # Table-atomic and text chunk builder
+│   │   ├── preprocessor.py        # Margin & span cleaner
+│   │   ├── section_detector.py    # SEC Item / Note header detection
+│   │   └── service.py             # Section building orchestrator
+│   │
+│   ├── llm/
+│   │   ├── citation_prompt.py     # Auditor system prompt & citation blocks
+│   │   ├── client.py              # Gemini client configuration
+│   │   └── service.py             # Answer generation & error handling
+│   │
+│   ├── pdf/
+│   │   ├── header_detector.py     # Font & size header heuristics
+│   │   └── parser.py              # Universal bounding-box table parser
+│   │
+│   ├── retrieval/
+│   │   ├── bm25.py                # Pure-Python BM25Okapi retriever
+│   │   ├── embedding.py           # HuggingFace BGE embeddings
+│   │   ├── reranker.py            # Neural Cross-Encoder sentence-pair scorer
+│   │   ├── retriever.py           # Hybrid Dense+BM25+RRF orchestrator
+│   │   └── vector_store.py        # ChromaDB collection management
+│   │
+│   ├── config.py                  # Project paths and hyperparameters
+│   └── pipeline.py                # End-to-end FinancialAIAuditorPipeline class
+│
+├── docs/                          # Sample SEC filings (Apple 10-K, Tesla 10-K)
+│   ├── apple_10k.pdf
+│   └── tesla_10K.pdf
+│
+├── experiments/                   # Progressive evaluation & milestone scripts
+│   ├── step1_llm_call.py
+│   ├── step2_context_injection.py
+│   ├── step3_pdf_extraction.py
+│   ├── step4_chunking.py
+│   ├── step5_embeddings.py
+│   ├── step6_similarity_search.py # 25-Query 3-Way Benchmark
+│   └── step7_rag_loop.py          # End-to-end RAG with citations
+│
+├── web/                           # Interactive Web UI
+│   ├── static/
+│   │   ├── script.js              # Citation modal, chat streaming, file uploads
+│   │   └── style.css              # Responsive dark/light theme & source cards
+│   └── templates/
+│       └── index.html             # Main dashboard template
+│
+├── .env.example                   # Environment configuration template
+├── .gitignore                     # Production Git ignore rules
+├── app.py                         # FastAPI server entrypoint
+├── requirements.txt               # Project dependencies
+└── README.md
+```
 
 ---
 
-## Current Status
+## Installation & Setup
 
-### Completed
-
-- Layout-aware PDF parsing
-- Table extraction
-- Initial header detection
-- Document preprocessing
-- Section-aware chunking
-- Embedding pipeline
-- ChromaDB integration
-- Retrieval pipeline
-- Modular project architecture
-
-### In Progress
-
-- Improving header detection robustness for complex financial layouts
-
-### Planned
-
-- Cross-Encoder reranking
-- NLI-based hallucination detection
-- Evidence verification
-- Financial citation grounding
-- Multi-document reasoning
-- Agentic retrieval workflow
-- Support for quarterly filings (10-Q)
-- Full-stack web application interface
-
----
-
-## Installation
-
-Clone the repository
-
+### 1. Clone the Repository
 ```bash
 git clone https://github.com/<username>/financial-ai-auditor.git
+cd financial-ai-auditor
 ```
 
-Create a virtual environment
-
+### 2. Create and Activate Virtual Environment
 ```bash
+# Windows
 python -m venv .venv
-```
+.venv\Scripts\activate
 
-Activate it
-
-Linux / macOS
-
-```bash
+# Linux / macOS
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Windows
-
-```bash
-.venv\Scripts\activate
-```
-
-Install dependencies
-
+### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
----
-
-## Example Documents
-
-The repository includes publicly available SEC filings for experimentation.
-
-- Apple 10-K
-- Tesla 10-K
+### 4. Configure Environment Variables
+Create a `.env` file in the project root (copy from `.env.example`):
+```env
+GEMINI_API_KEY=your_actual_gemini_api_key
+GEMINI_MODEL=gemini-3.5-flash
+```
 
 ---
 
-## Future Improvements
+## Running the Application
 
-- Layout-aware section reconstruction
-- Hybrid BM25 + Dense Retrieval
-- Cross-Encoder reranking
-- Financial claim verification
-- Multi-document reasoning
-- Agentic retrieval workflow
-- Support for quarterly filings (10-Q)
-- Full-stack web application
+### Launch the Web Dashboard
+```bash
+python app.py
+```
+Open your browser at: **`http://127.0.0.1:8000`**
+
+### Run the 25-Query Retrieval Benchmark
+```bash
+python -m experiments.step6_similarity_search
+```
+
+### Run the End-to-End RAG Loop Test
+```bash
+python -m experiments.step7_rag_loop
+```
 
 ---
 
-## Team
-
-This project is collaboratively developed by:
+## Team & Acknowledgements
 
 - **Ayush Mukati**
 - **Nitu Patidar**
 
-Both contributors participate in the research, system design, implementation, experimentation, and evaluation of the project.
-
----
+*Developed for rigorous, verifiable financial auditing with zero numerical hallucinations.*

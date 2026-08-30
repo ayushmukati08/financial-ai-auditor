@@ -1,19 +1,18 @@
 # This file should have the responsibility to create and expose the Gemini client.
 
-import os
-from dotenv import load_dotenv
 from google import genai
+from core.config import GEMINI_API_KEY, GEMINI_MODEL
 
 # Load API key from .env
-load_dotenv()
+MODEL = GEMINI_MODEL
 
-API_KEY=os.getenv("GEMINI_API_KEY")
-MODEL=os.getenv("GEMINI_MODEL")
+def get_gemini_client(api_key: str = GEMINI_API_KEY) -> genai.Client | None:
+    """
+    Returns a configured Gemini client, or None if GEMINI_API_KEY is not set.
+    """
+    if not api_key:
+        return None
+    return genai.Client(api_key=api_key)
 
-if not API_KEY:
-    raise ValueError("GEMINI_API_KEY not found")
 
-if not MODEL:
-    raise ValueError("GEMINI_MODEL not found")
-
-client = genai.Client(api_key=API_KEY)
+client = get_gemini_client()

@@ -1,12 +1,376 @@
 """
 step6_similarity_search.py
-Exploratory / throwaway script for this step.
-Once the logic works here, promote a clean version into core/.
+Comprehensive 25-Query Benchmark comparing:
+1. Pipeline 1: Dense Only (BGE-base-en-v1.5)
+2. Pipeline 2: Dense (Top 20) -> Cross-Encoder (Top 5)
+3. Pipeline 3: BM25 (Top 20) + Dense (Top 20) -> RRF (Top 20) -> Cross-Encoder (Top 5)
+
+Evaluates:
+- Overall Hit@1 and Recall@5
+- Table-specific Hit@1 and Recall@5
+- Narrative-specific Hit@1 and Recall@5
 """
 
-def main():
-    pass
+import time
+from core.retrieval.vector_store import get_vector_store
+from core.retrieval.retriever import (
+    retrieve_relevant_chunks,
+    rerank_documents,
+    retrieve_with_diagnostics,
+)
+
+BENCHMARK_25_QUERIES = [
+    # --- Apple 10-K Queries ---
+    {
+        "id": "A01",
+        "description": "Apple Share Repurchase Activity Table",
+        "query": "What were Apple's share repurchase amounts, average prices paid, and remaining dollar values in the three months ended September 27, 2025?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 22,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A02",
+        "description": "Apple Segment Net Sales Table",
+        "query": "What were Apple's net sales and percentage change in Europe, Greater China, and Japan for 2025 compared to 2024?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 25,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A03",
+        "description": "Apple Products & Services Net Sales Table",
+        "query": "What were Apple's net sales for iPhone, Mac, iPad, Wearables, and Services in 2025 and 2024?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 26,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A04",
+        "description": "Apple Products and Services Gross Margin Table",
+        "query": "What were Apple's Products and Services gross margin dollar amounts and gross margin percentages for 2025, 2024 and 2023?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 27,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A05",
+        "description": "Apple R&D Expense Narrative Drivers",
+        "query": "What factors drove the increase in Apple's research and development expenses in fiscal year 2025?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 28,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+    {
+        "id": "A06",
+        "description": "Apple SG&A Narrative Drivers",
+        "query": "What factors drove the change in Apple's selling, general and administrative expenses during 2025 compared to 2024?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 28,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+    {
+        "id": "A07",
+        "description": "Apple Foreign Exchange Risk Narrative",
+        "query": "How does foreign currency volatility and the strength of the U.S. dollar affect Apple's net sales?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 31,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+    {
+        "id": "A08",
+        "description": "Apple Statements of Operations Table",
+        "query": "Consolidated Statements of Operations net sales, total operating expenses, and net income for 2025, 2024, and 2023",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 32,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A09",
+        "description": "Apple Statements of Comprehensive Income Table",
+        "query": "Consolidated Statements of Comprehensive Income total comprehensive income for 2025, 2024 and 2023",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 33,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A10",
+        "description": "Apple Consolidated Balance Sheets Table",
+        "query": "Consolidated Balance Sheets total current assets, total assets, total current liabilities, and total shareholders' equity as of September 27, 2025",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 34,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A11",
+        "description": "Apple Statements of Shareholders' Equity Table",
+        "query": "Consolidated Statements of Shareholders' Equity common stock and retained earnings balances for 2025",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 35,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A12",
+        "description": "Apple Statements of Cash Flows Table",
+        "query": "Consolidated Statements of Cash Flows cash generated by operating activities and payments for share repurchases in 2025",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 36,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A13",
+        "description": "Apple Deferred Revenue Recognition Policy",
+        "query": "How does Apple account for and amortize deferred revenue related to bundled services?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 38,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+    {
+        "id": "A14",
+        "description": "Apple Property, Plant and Equipment Note Table",
+        "query": "Property, plant and equipment gross cost, accumulated depreciation, and net book value as of September 27, 2025",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 42,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A15",
+        "description": "Apple Term Debt Table",
+        "query": "What were the carrying values and effective interest rates of Apple's fixed-rate notes and term debt as of September 27, 2025?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 47,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A16",
+        "description": "Apple Geographic Net Sales Note Table",
+        "query": "Net sales disaggregated by individual countries United States, China, and Japan in 2025, 2024 and 2023",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 51,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "A17",
+        "description": "Apple European Commission State Aid Narrative",
+        "query": "What is the status of the European Commission state aid decision concerning Apple's tax treatment in Ireland?",
+        "target_doc": "apple_10k.pdf",
+        "target_page": 44,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+
+    # --- Tesla 10-K Queries ---
+    {
+        "id": "T18",
+        "description": "Tesla Disaggregated Revenues by Source Table",
+        "query": "What were Tesla's automotive revenues, automotive regulatory credits, and total revenues in 2023, 2022, and 2021?",
+        "target_doc": "tesla_10K.pdf",
+        "target_page": 57,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "T19",
+        "description": "Tesla Consolidated Statements of Operations Table",
+        "query": "Consolidated Statements of Operations total revenues, cost of revenues, gross profit, and net income for 2023",
+        "target_doc": "tesla_10K.pdf",
+        "target_page": 52,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "T20",
+        "description": "Tesla Consolidated Balance Sheets Table",
+        "query": "Consolidated Balance Sheets cash and cash equivalents, total current assets, total assets, and total liabilities as of December 31, 2023",
+        "target_doc": "tesla_10K.pdf",
+        "target_page": 53,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+    {
+        "id": "T21",
+        "description": "Tesla Automotive Sales MD&A Narrative",
+        "query": "What factors drove the year-over-year change in Tesla's automotive sales revenue in 2023 compared to 2022?",
+        "target_doc": "tesla_10K.pdf",
+        "target_page": 39,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+    {
+        "id": "T22",
+        "description": "Tesla Cybertruck R&D Expense Driver Narrative",
+        "query": "Why did Tesla's research and development expenses increase in 2023 compared to 2022?",
+        "target_doc": "tesla_10K.pdf",
+        "target_page": 42,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+    {
+        "id": "T23",
+        "description": "Tesla Automotive Regulatory Credits Policy Narrative",
+        "query": "How and when does Tesla recognize revenue from automotive regulatory credits sold to other OEMs?",
+        "target_doc": "tesla_10K.pdf",
+        "target_page": 58,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+    {
+        "id": "T24",
+        "description": "Tesla Warranty Accrual Policy Narrative",
+        "query": "What is Tesla's policy and estimation methodology for accrued warranty liabilities on vehicles?",
+        "target_doc": "tesla_10K.pdf",
+        "target_page": 60,
+        "target_type": "TEXT",
+        "category": "TEXT",
+    },
+    {
+        "id": "T25",
+        "description": "Tesla Stock-Based Compensation Table",
+        "query": "Stock-based compensation expense by operating statement line item in 2023, 2022 and 2021",
+        "target_doc": "tesla_10K.pdf",
+        "target_page": 85,
+        "target_type": "TABLE",
+        "category": "TABLE",
+    },
+]
+
+
+def check_match(docs: list, target_doc: str, target_page: int, target_type: str) -> tuple[bool, bool, str]:
+    """
+    Evaluates whether target document chunk is retrieved at Rank 1 and in Top 5.
+    """
+    hit_1 = False
+    hit_5 = False
+    rank_1_desc = "None"
+
+    for rank, doc in enumerate(docs[:5], start=1):
+        m = doc.metadata if hasattr(doc, "metadata") else doc[0].metadata
+        chunk_type = m.get("chunk_type", "text").upper()
+        doc_name = m.get("document_name", "")
+        start_p = m.get("start_page", 0)
+        end_p = m.get("end_page", 0)
+        chunk_id = m.get("chunk_id", "")
+
+        is_match = (
+            doc_name == target_doc
+            and (start_p - 1 <= target_page <= end_p + 1)
+            and (target_type == "ANY" or chunk_type == target_type)
+        )
+
+        if rank == 1:
+            rank_1_desc = f"{chunk_id} ({chunk_type}, p.{start_p}-{end_p})"
+
+        if is_match:
+            if rank == 1:
+                hit_1 = True
+            hit_5 = True
+            break
+
+    return hit_1, hit_5, rank_1_desc
+
+
+def run_benchmark():
+    print("=" * 115)
+    print("COMPREHENSIVE 25-QUERY BENCHMARK: DENSE vs. DENSE+RERANK vs. BM25+DENSE+RRF+RERANK")
+    print("=" * 115)
+
+    vector_store = get_vector_store()
+    total_docs = vector_store._collection.count()
+    print(f"Connected to ChromaDB: {total_docs} vectors loaded. Initializing BM25 index...\n")
+
+    p1_results = []
+    p2_results = []
+    p3_results = []
+
+    start_time = time.time()
+
+    for idx, test in enumerate(BENCHMARK_25_QUERIES, start=1):
+        q = test["query"]
+        doc_tgt = test["target_doc"]
+        page_tgt = test["target_page"]
+        type_tgt = test["target_type"]
+        cat = test["category"]
+
+        # Pipeline 1: Dense Only (Top 5)
+        dense_top5 = retrieve_relevant_chunks(q, vector_store=vector_store, top_k=5)
+        h1_p1, h5_p1, desc_p1 = check_match(dense_top5, doc_tgt, page_tgt, type_tgt)
+        p1_results.append({"hit1": h1_p1, "recall5": h5_p1, "cat": cat})
+
+        # Pipeline 2: Dense Top 20 -> Cross-Encoder Top 5
+        dense_top20 = retrieve_relevant_chunks(q, vector_store=vector_store, top_k=20)
+        p2_ranked = [d for d, s in rerank_documents(q, dense_top20, top_k=5)]
+        h1_p2, h5_p2, desc_p2 = check_match(p2_ranked, doc_tgt, page_tgt, type_tgt)
+        p2_results.append({"hit1": h1_p2, "recall5": h5_p2, "cat": cat})
+
+        # Pipeline 3: BM25 Top 20 + Dense Top 20 -> RRF Top 20 -> Cross-Encoder Top 5
+        diag = retrieve_with_diagnostics(q, vector_store=vector_store, dense_k=20, bm25_k=20, rrf_k=60, final_k=5)
+        p3_ranked = [d for d, s in diag["reranked_results"]]
+        h1_p3, h5_p3, desc_p3 = check_match(p3_ranked, doc_tgt, page_tgt, type_tgt)
+        p3_results.append({"hit1": h1_p3, "recall5": h5_p3, "cat": cat})
+
+        # Print per-query summary row
+        print(f"[{idx:02d}/25] {test['id']} ({cat:<5}) | {test['description'][:48]:<48}")
+        print(f"      P1 (Dense Only)     : Rank 1: {desc_p1:<36} | Hit@1: {str(h1_p1):<5} | Recall@5: {str(h5_p1)}")
+        print(f"      P2 (Dense + Rerank) : Rank 1: {desc_p2:<36} | Hit@1: {str(h1_p2):<5} | Recall@5: {str(h5_p2)}")
+        print(f"      P3 (BM25+Dense+RRF) : Rank 1: {desc_p3:<36} | Hit@1: {str(h1_p3):<5} | Recall@5: {str(h5_p3)}")
+        print("-" * 115)
+
+    elapsed = time.time() - start_time
+
+    # Compute Statistics
+    def compute_metrics(res_list):
+        total = len(res_list)
+        hit1 = sum(1 for r in res_list if r["hit1"])
+        rec5 = sum(1 for r in res_list if r["recall5"])
+
+        tbl_list = [r for r in res_list if r["cat"] == "TABLE"]
+        tbl_hit1 = sum(1 for r in tbl_list if r["hit1"])
+        tbl_rec5 = sum(1 for r in tbl_list if r["recall5"])
+
+        txt_list = [r for r in res_list if r["cat"] == "TEXT"]
+        txt_hit1 = sum(1 for r in txt_list if r["hit1"])
+        txt_rec5 = sum(1 for r in txt_list if r["recall5"])
+
+        return {
+            "total_hit1": f"{hit1}/{total} ({hit1/total*100:.1f}%)",
+            "total_rec5": f"{rec5}/{total} ({rec5/total*100:.1f}%)",
+            "tbl_hit1": f"{tbl_hit1}/{len(tbl_list)} ({tbl_hit1/len(tbl_list)*100:.1f}%)",
+            "tbl_rec5": f"{tbl_rec5}/{len(tbl_list)} ({tbl_rec5/len(tbl_list)*100:.1f}%)",
+            "txt_hit1": f"{txt_hit1}/{len(txt_list)} ({txt_hit1/len(txt_list)*100:.1f}%)",
+            "txt_rec5": f"{txt_rec5}/{len(txt_list)} ({txt_rec5/len(txt_list)*100:.1f}%)",
+        }
+
+    m1 = compute_metrics(p1_results)
+    m2 = compute_metrics(p2_results)
+    m3 = compute_metrics(p3_results)
+
+    print("\n" + "=" * 115)
+    print("FINAL 25-QUERY BENCHMARK COMPARISON SUMMARY TABLE")
+    print("=" * 115)
+    print(f"{'Retrieval Pipeline':<38} | {'Hit@1 (All)':<16} | {'Recall@5 (All)':<16} | {'Table Rec@5':<16} | {'Text Rec@5':<16}")
+    print("-" * 115)
+    print(f"{'1. Dense Only (BGE-base)':<38} | {m1['total_hit1']:<16} | {m1['total_rec5']:<16} | {m1['tbl_rec5']:<16} | {m1['txt_rec5']:<16}")
+    print(f"{'2. Dense + Cross-Encoder':<38} | {m2['total_hit1']:<16} | {m2['total_rec5']:<16} | {m2['tbl_rec5']:<16} | {m2['txt_rec5']:<16}")
+    print(f"{'3. BM25 + Dense + RRF + Cross-Encoder':<38} | {m3['total_hit1']:<16} | {m3['total_rec5']:<16} | {m3['tbl_rec5']:<16} | {m3['txt_rec5']:<16}")
+    print("=" * 115)
+    print(f"Benchmark completed across 25 queries in {elapsed:.1f}s.\n")
 
 
 if __name__ == "__main__":
-    main()
+    run_benchmark()

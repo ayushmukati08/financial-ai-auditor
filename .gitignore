@@ -1,15 +1,35 @@
 # Virtual Environment
 .venv/
+env/
+venv/
+ENV/
 
-# Environment Variables
+# Environment Variables & Secrets
 .env
+*.env
+!.env.example
 
-# Python Cache
+# Python Cache & Bytecode
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.pytest_cache/
 
-# Chroma Database
-db/chroma_db/
+# ChromaDB & Vector Store Database Binaries
+db/
+chroma_db/
+*.sqlite3
 
-# VS Code Temporary File
+# Scratch / Diagnostic Files
+scratch/
+scripts/
 tempCodeRunnerFile.py
+*.log
+
+# OS / IDE Artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+To do list.txt

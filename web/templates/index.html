@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial AI Auditor</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+
+<body>
+    <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <!-- Header -->
+            <div class="sidebar-header">
+                <div class="logo">
+                    🤖 <span class="logo-text">Financial AI Auditor</span>
+                </div>
+                <button class="collapse-btn" id="collapse-btn" title="Toggle Sidebar">
+                    ☰
+                </button>
+            </div>
+
+            <!-- New Chat -->
+            <button class="new-chat-btn" id="new-chat-btn">
+                <span class="new-chat-icon">＋</span>
+                <span class="new-chat-text">New Audit Session</span>
+            </button>
+
+            <!-- Search Chats -->
+            <div class="chat-search">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="chat-search-input" placeholder="Search sessions...">
+            </div>
+
+            <!-- Sidebar Menu -->
+            <div class="sidebar-menu">
+                <div class="chat-history-title">Recent Audit Chats</div>
+                <div class="chat-history" id="chat-history">
+                    <!-- Chats will be added dynamically -->
+                </div>
+
+                <div class="uploaded-documents">
+                    <div class="documents-title">Indexed 10-K Filings</div>
+                    <div id="documents-list">
+                        <!-- Loaded documents appear here -->
+                    </div>
+                </div>
+
+                <div class="menu-item" id="settings-btn">
+                    ⚙ <span>Settings & Models</span>
+                </div>
+            </div>
+
+            <!-- System Status -->
+            <div class="system-status">
+                <span class="status-dot"></span>
+                <span id="system-status-text">Auditor Engine Online</span>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Chat Container -->
+            <section class="chat-container" id="chat-container">
+                <!-- Welcome View -->
+                <div class="welcome-message" id="welcome-message">
+                    <div class="welcome-icon">📊</div>
+                    <h1>Financial AI Auditor</h1>
+                    <p>
+                        Ask questions about SEC 10-K filings with grounded sentence-level citations, verified tables, and audit trail evidence.
+                    </p>
+
+                    <div class="suggestions">
+                        <button class="suggestion" data-query="What were Apple's net sales and percentage change across Europe, Greater China, and Japan for 2025 compared to 2024?">
+                            🍎 Apple 2025 Segment Sales
+                        </button>
+                        <button class="suggestion" data-query="What were Tesla's automotive revenues, automotive regulatory credits, and total revenues in 2023?">
+                            ⚡ Tesla 2023 Revenue Breakdown
+                        </button>
+                        <button class="suggestion" data-query="What factors drove the increase in Apple's research and development expenses in fiscal year 2025?">
+                            🔬 Apple 2025 R&D Drivers
+                        </button>
+                        <button class="suggestion" data-query="What were Apple's share repurchase amounts, average prices paid, and remaining dollar values in the three months ended September 27, 2025?">
+                            📈 Apple Share Repurchase Table
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Message stream goes here -->
+                <div class="messages-list" id="messages-list"></div>
+            </section>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="uploaded-files" id="uploaded-files"></div>
+
+                <div class="input-box">
+                    <label for="file-upload" class="upload-btn" title="Upload SEC 10-K / 10-Q PDF">
+                        📎
+                    </label>
+                    <input type="file" id="file-upload" accept=".pdf" multiple hidden>
+
+                    <input type="text" id="user-input" placeholder="Ask anything about Apple, Tesla, or uploaded filings..." autocomplete="off">
+
+                    <button id="send-btn" title="Send Question">
+                        ➤
+                    </button>
+                </div>
+
+                <p class="input-info">
+                    Hybrid Retrieval (Dense BGE + Lexical BM25 + Cross-Encoder) with Citation Verification.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Evidence Modal -->
+    <div class="evidence-modal-overlay" id="evidence-modal" style="display: none;">
+        <div class="evidence-modal-content">
+            <div class="evidence-modal-header">
+                <h3 id="modal-citation-title">Source Citation Evidence</h3>
+                <button class="close-modal-btn" id="close-modal-btn">✕</button>
+            </div>
+            <div class="evidence-modal-meta" id="modal-citation-meta"></div>
+            <pre class="evidence-modal-body" id="modal-citation-body"></pre>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+
+</html>

@@ -1,7 +1,5 @@
 import re
 
-MAX_HEADER_LENGTH = 80
-
 # Known boilerplate patterns that get falsely flagged as
 # headers because they're short and bold (SEC filing checkboxes
 IGNORE_SPANS = {
@@ -18,7 +16,10 @@ IGNORE_RE = re.compile(
     re.IGNORECASE
 )
 
-def detect_headers(page: dict, size_ratio_threshold: float = 1.15,) -> list[dict]:
+def detect_headers(
+    page: dict, 
+    size_ratio_threshold: float = 1.15,
+) -> list[dict]:
     """
     Detect likely heading candidates.
 
@@ -35,6 +36,7 @@ def detect_headers(page: dict, size_ratio_threshold: float = 1.15,) -> list[dict
 
     sizes = sorted(span["size"] for span in spans)
     median_size = sizes[len(sizes) // 2]
+    
     header_candidates = []
 
     for span in spans:
@@ -45,13 +47,14 @@ def detect_headers(page: dict, size_ratio_threshold: float = 1.15,) -> list[dict
         
         is_large = span["size"] >= median_size * size_ratio_threshold
 
-        is_short_bold = span["bold"] and len(text) < MAX_HEADER_LENGTH
+        is_bold = span["bold"]
+        
+        end_with_punctuation = text.rstrip().endswith((".", "?", "!"))
 
-        if is_large or is_short_bold:
+        if (is_large or is_bold) and not end_with_punctuation:
             header_candidates.append(span)
 
     return header_candidates
-
 
 def _is_noise(text: str) -> bool:
     """
