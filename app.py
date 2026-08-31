@@ -43,6 +43,24 @@ def get_pipeline() -> FinancialAIAuditorPipeline:
     return _pipeline
 
 
+@app.on_event("startup")
+async def startup_event():
+    """
+    On application startup, verify vector store. If empty, automatically index docs/.
+    """
+    try:
+        pipeline = get_pipeline()
+        count = pipeline.vector_store._collection.count()
+        if count == 0:
+            print("ChromaDB is empty on startup. Automatically indexing docs/...")
+            summary = pipeline.ingest_documents(force_reload=False)
+            print(f"Startup ingestion complete: {summary}")
+        else:
+            print(f"Startup ready: ChromaDB has {count} indexed vectors.")
+    except Exception as e:
+        print(f"Startup vector check notice: {e}")
+
+
 # --- Pydantic Request Models ---
 class AskRequest(BaseModel):
     query: str
@@ -164,8 +182,9 @@ async def upload_documents(files: list[UploadFile] = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
+    port = int(os.getenv("PORT", 8000))
     print("\n" + "=" * 70)
     print("STARTING FINANCIAL AI AUDITOR SERVER")
-    print("Open your browser at: http://127.0.0.1:8000")
+    print(f"Open your browser at: http://127.0.0.1:{port}")
     print("=" * 70 + "\n")
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
